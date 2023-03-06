@@ -26,7 +26,7 @@ char TLE1[8][70];
 char TLE2[8][70];
 
 Sgp4 sat;
-float minPassElevation = 15.0;
+float minPassElevation = 10.0;
 float myLat = 45.5106; float myLong = -73.4384; float myAlt = 27;   // Your latitude, longitude and altitude.
 int numSats = 7;    // Number of satellites to track.
 int SAT; int nextSat; int AZstart; long passEnd; int satVIS;
@@ -159,11 +159,11 @@ void clearLCD() {
 SerLCD lcd;
 
 void setup() {
-  pinMode(ELLimit, INPUT_PULLUP);
+  pinMode(ELLimit, INPUT_PULLUP); // init pins for limit switches
   pinMode(AZLimit, INPUT_PULLUP);
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
   Serial.begin(115200);
-  LCD.begin(9600, SERIAL_8N1, 20, 25);
+  LCD.begin(9600, SERIAL_8N1, 20, 25); // Rx pin not used
   lcd.begin(LCD);
   delay(1000);
 
@@ -204,7 +204,6 @@ void setup() {
     String TLE;
 
     if (httpCode == HTTP_CODE_OK) {
-      //Serial.println(http.getString());
       TLE = http.getString();
       TLE.substring(26, 96).toCharArray(TLE1[SAT], 70);
       TLE.substring(97, 167).toCharArray(TLE2[SAT], 70);
@@ -212,8 +211,7 @@ void setup() {
       Serial.println(TLE2[SAT]);
 
       sat.init(satname, TLE1[SAT], TLE2[SAT]);   //initialize satellite parameters
-      sat.findsat(timeNow);
-      upcomingPasses[SAT] = Predict(timeNow);
+      upcomingPasses[SAT] = Predict(timeNow); // find next pass and store it array
     } else {
       Serial.println("Failed to fetch TLE data for " + String(satnames[SAT]));
     }
@@ -221,9 +219,9 @@ void setup() {
   }
   http.end();
 
-  nextSat = nextSatPass(upcomingPasses);
+  nextSat = nextSatPass(upcomingPasses); // find earliest pass and track that sat
   Serial.println("Next satellite: " + String(nextSat));
-  sat.init(satname, TLE1[nextSat], TLE2[nextSat]);
+  sat.init(satname, TLE1[nextSat], TLE2[nextSat]); 
   Predict(timeNow);
 }
 
@@ -361,8 +359,7 @@ void postpass() {
   if (passStatus == 1 && timeNow - passEnd > 50) {
     for (SAT = 0; SAT < numSats; SAT++) {
       sat.init(satname, TLE1[SAT], TLE2[SAT]);
-      sat.findsat(timeNow);
-      upcomingPasses[SAT] = Predict(timeNow + 100); // + 100 seconds so next pass is for sure not the one just ending.
+      upcomingPasses[SAT] = Predict(timeNow + 200); // + 100 seconds so next pass is for sure not the one just ending.
       Serial.println("Next pass for Satellite #: " + String(SAT) + " in: " + String(upcomingPasses[SAT] - timeNow));
     }
     nextSat = nextSatPass(upcomingPasses);

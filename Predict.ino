@@ -2,7 +2,7 @@
 // Predicts time of next pass and start azimuth for satellites
 long Predict(unsigned long _timeNow) {
   passinfo overpass;                      //structure to store overpass info
-  sat.initpredpoint( _timeNow , 10.0 );     //finds the startpoint
+  sat.initpredpoint( _timeNow , minPassElevation);     //finds the startpoint
 
   bool error;
 
