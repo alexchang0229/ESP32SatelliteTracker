@@ -1,8 +1,8 @@
 // Adapted from sgp4 library
 // Predicts time of next pass and start azimuth for satellites
-long Predict(unsigned long _timeNow) {
+long Predict(unsigned long _timeNow, float minElevation) {
   passinfo overpass;                      //structure to store overpass info
-  sat.initpredpoint( _timeNow , minPassElevation);     //finds the startpoint
+  sat.initpredpoint( _timeNow , minElevation);     //finds the startpoint
 
   bool error;
 

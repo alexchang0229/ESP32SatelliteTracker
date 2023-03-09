@@ -211,7 +211,7 @@ void setup() {
       Serial.println(TLE2[SAT]);
 
       sat.init(satname, TLE1[SAT], TLE2[SAT]);   //initialize satellite parameters
-      upcomingPasses[SAT] = Predict(timeNow); // find next pass and store it array
+      upcomingPasses[SAT] = Predict(timeNow, minPassElevation); // find next pass and store it array
     } else {
       Serial.println("Failed to fetch TLE data for " + String(satnames[SAT]));
     }
@@ -222,16 +222,16 @@ void setup() {
   nextSat = nextSatPass(upcomingPasses); // find earliest pass and track that sat
   Serial.println("Next satellite: " + String(nextSat));
   sat.init(satname, TLE1[nextSat], TLE2[nextSat]); 
-  Predict(timeNow);
+  Predict(timeNow, 0.0);
 }
 
 String printHHmmss (unsigned long _secondsIn) {
   unsigned int _hour = floor(_secondsIn / 60 / 60);
   unsigned int _minute = floor((_secondsIn / 60) % 60) ;
-  unsigned int _seconds = _secondsIn % 60; \
-  char DateAndTimeString[20]; //19 digits plus the null char
-  sprintf(DateAndTimeString, "%02d:%02d:%02d", _hour, _minute, _seconds);
-  return DateAndTimeString;
+  unsigned int _seconds = _secondsIn % 60;
+  char _DateAndTimeString[20]; //19 digits plus the null char
+  sprintf(_DateAndTimeString, "%02d:%02d:%02d", _hour, _minute, _seconds);
+  return _DateAndTimeString;
 }
 
 void loop() {
@@ -259,14 +259,20 @@ void loop() {
     Serial.println("Status: In pass");
     clearLCD();
     lcd.print(satnames[nextSat]);
-    lcd.print(" " + String(nextpassEndEpoch - timeNow));
+    unsigned int timeToLOS = nextpassEndEpoch - timeNow;
+    unsigned int _minute = floor((timeToLOS / 60) % 60) ;
+    unsigned int _seconds = timeToLOS % 60;
+    char DateAndTimeString[20]; //19 digits plus the null char
+    sprintf(DateAndTimeString, "%02d:%02d", _minute, _seconds);
+    lcd.print(" LOS-");
+    lcd.print(DateAndTimeString);
     lcd.setCursor(0, 1);
     lcd.print("AZ:" + String(int(sat.satAz)) + " EL:" + String(int(sat.satEl)));
     inPass();
   } else if (timeNow - passEnd < 60) {
     Serial.println("Status: Post-pass");
     clearLCD();
-    lcd.print("Post-pass:" + String(passEnd - timeNow));
+    lcd.print("Post-pass:" + String(passEnd +60 - timeNow));
     postpass();
   } else if (sat.satVis == -2) {
     Serial.println("Status: Standby");
@@ -278,10 +284,7 @@ void loop() {
     lcd.print("AZ:" + String(int(sat.satAz)) + " EL:" + String(int(sat.satEl)));
     standby();
   }
-
-
-
-  delay(1000);
+  delay(500);
 }
 
 void standby () {
@@ -359,12 +362,12 @@ void postpass() {
   if (passStatus == 1 && timeNow - passEnd > 50) {
     for (SAT = 0; SAT < numSats; SAT++) {
       sat.init(satname, TLE1[SAT], TLE2[SAT]);
-      upcomingPasses[SAT] = Predict(timeNow + 200); // + 100 seconds so next pass is for sure not the one just ending.
+      upcomingPasses[SAT] = Predict(timeNow + 200, minPassElevation); // + 200 seconds so next pass is for sure not the one just ending.
       Serial.println("Next pass for Satellite #: " + String(SAT) + " in: " + String(upcomingPasses[SAT] - timeNow));
     }
     nextSat = nextSatPass(upcomingPasses);
     sat.init(satname, TLE1[nextSat], TLE2[nextSat]);
-    Predict(timeNow);
+    Predict(timeNow, 0.0);
     passStatus = 0;
   }
 
