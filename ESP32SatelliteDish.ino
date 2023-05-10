@@ -1,42 +1,37 @@
-#include <WiFi.h>
+#include <WiFi.h> //1.2.7
 #include <HTTPClient.h>
-#include <AccelStepper.h>
-#include <ESP32Time.h>
-#include <Sgp4.h>
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
-#include <HardwareSerial.h>
+#include <AccelStepper.h> // 1.64.0
+#include <ESP32Time.h> // 2.0.0
+#include <Sgp4.h> //https://github.com/Hopperpop/Sgp4-Library
+#include "soc/soc.h" // to disable ESP32 brownout detector 
+#include "soc/rtc_cntl_reg.h" // to disable ESP32 brownout detector 
+#include <HardwareSerial.h> 
 #include "time.h"
-#include <SerLCD.h>
+#include <SerLCD.h> // 1.0.9
 #include <math.h>
 #include <strings.h>
 
 // Replace with your network credentials
-const char* ssid = "";
-const char* password = "";
+const char* ssid = "ChangVan2017";
+const char* password = "ohcanada";
 
 
-char satnames[8][30] = {"R2", "NEOSSAT", "SCISAT", "RCM1", "RCM2", "RCM3", "ISS"}; // Names of satellites.
-char satURL[8][40] = {"/NORAD/elements/gp.php?CATNR=32382", "/NORAD/elements/gp.php?CATNR=39089",
+char satnames[20][30] = {"R2", "NEOSSAT", "SCISAT", "RCM1", "RCM2", "RCM3", "ISS"}; // Names of satellites.
+char satURL[20][40] = {"/NORAD/elements/gp.php?CATNR=32382", "/NORAD/elements/gp.php?CATNR=39089",
                       "/NORAD/elements/gp.php?CATNR=27858", "/NORAD/elements/gp.php?CATNR=44322",
                       "/NORAD/elements/gp.php?CATNR=44324", "/NORAD/elements/gp.php?CATNR=44323",
                       "/NORAD/elements/gp.php?CATNR=25544"
                      }; // URL of Celestrak TLEs for satellites (In same order as names).
-char TLE1[8][70];
-char TLE2[8][70];
-
-Sgp4 sat;
+char TLE1[20][70];
+char TLE2[20][70];
+long upcomingPasses[20];
+int numSats = 7;    // Number of satellites to track.
 float minPassElevation = 10.0;
 float myLat = 45.5106; float myLong = -73.4384; float myAlt = 27;   // Your latitude, longitude and altitude.
-int numSats = 7;    // Number of satellites to track.
-int SAT; int nextSat; int AZstart; long passEnd; int satVIS;
-int  year; int mon; int day; int hr; int minute; double sec; int today;
-long nextpassEpoch; long nextpassEndEpoch; long upcomingPasses[7]; long passDuration;
-char satname[] = " ";
-int passStatus = 0;
-
-//EL 26, 18, 19, 23 Limit: 32
-//AZ 22, 21, 17 ,16 Limit: 27
+const int timeZone = -5;
+//pins:
+//EL motor: 26, 18, 19, 23 Limit: 32
+//AZ motor: 22, 21, 17 ,16 Limit: 27
 // Azimuth stepper pins //
 #define AZmotorPin1  22      // IN1 on the ULN2003 driver
 #define AZmotorPin2  21     // IN2 on the ULN2003 driver
@@ -49,18 +44,25 @@ int passStatus = 0;
 #define ELmotorPin3  19
 #define ELmotorPin4  23
 #define ELLimit 32
+float oneTurn = 4096; // stepper steps/turn
+
+int SAT; int nextSat; int AZstart; long passEnd; int satVIS;
+int  year; int mon; int day; int hr; int minute; double sec; int today;
+long nextpassEpoch; long nextpassEndEpoch; long passDuration;
+
+char satname[] = " ";
+int passStatus = 0;
 
 HardwareSerial LCD(2);
+Sgp4 sat;
 
 int satAZsteps; int satELsteps; int turns = 0;
-float oneTurn = 4096;
 
 #define MotorInterfaceType 8  // Define the AccelStepper interface type; 4 wire motor in half step mode:
 AccelStepper stepperAZ = AccelStepper(MotorInterfaceType, AZmotorPin1, AZmotorPin3, AZmotorPin2, AZmotorPin4);
 AccelStepper stepperEL = AccelStepper(MotorInterfaceType, ELmotorPin1, ELmotorPin3, ELmotorPin2, ELmotorPin4);
 
 ESP32Time rtc(0);
-const int timeZone = -5;
 unsigned long timeNow = 0;
 const char* ntpServer = "pool.ntp.org";
 
@@ -75,7 +77,7 @@ unsigned long getTime() {
   return now;
 }
 
-int nextSatPass(long _nextpassEpoch[7]) { // Replace with number of satellites
+int nextSatPass(long _nextpassEpoch[20]) {
   for (int i = 0; i < numSats; ++i) {
     if ( _nextpassEpoch[0] - timeNow >= _nextpassEpoch[i] - timeNow) {
       _nextpassEpoch[0] = _nextpassEpoch[i];
@@ -170,9 +172,9 @@ void setup() {
   // Connect to Wi-Fi network
   clearLCD();
   lcd.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(2000);
-    WiFi.begin(ssid, password);
     Serial.println("Connecting to WiFi...");
   }
   Serial.println("Connected to WiFi!");
@@ -264,7 +266,7 @@ void loop() {
     unsigned int _seconds = timeToLOS % 60;
     char DateAndTimeString[20]; //19 digits plus the null char
     sprintf(DateAndTimeString, "%02d:%02d", _minute, _seconds);
-    lcd.print(" LOS-");
+    lcd.print(" LOS");
     lcd.print(DateAndTimeString);
     lcd.setCursor(0, 1);
     lcd.print("AZ:" + String(int(sat.satAz)) + " EL:" + String(int(sat.satEl)));
