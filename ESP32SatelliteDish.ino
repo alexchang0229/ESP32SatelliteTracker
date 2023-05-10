@@ -10,10 +10,10 @@
 #include <SerLCD.h>
 #include <math.h>
 #include <strings.h>
-
+#include "secrets.h"
 // Replace with your network credentials
-const char* ssid = "";
-const char* password = "";
+const char* ssid = SECRET_SSID;
+const char* password = SECRET_PASS;
 
 
 char satnames[8][30] = {"R2", "NEOSSAT", "SCISAT", "RCM1", "RCM2", "RCM3", "ISS"}; // Names of satellites.
