@@ -1,54 +1,66 @@
 #include <WiFi.h> //1.2.7
 #include <HTTPClient.h>
-#include <AccelStepper.h> // 1.64.0
-#include <ESP32Time.h> // 2.0.0
-#include <Sgp4.h> //https://github.com/Hopperpop/Sgp4-Library
-#include "soc/soc.h" // to disable ESP32 brownout detector 
-#include "soc/rtc_cntl_reg.h" // to disable ESP32 brownout detector 
-#include <HardwareSerial.h> 
+#include <AccelStepper.h>     // 1.64.0
+#include <ESP32Time.h>        // 2.0.0
+#include <Sgp4.h>             //https://github.com/Hopperpop/Sgp4-Library
+#include "soc/soc.h"          // to disable ESP32 brownout detector
+#include "soc/rtc_cntl_reg.h" // to disable ESP32 brownout detector
+#include <HardwareSerial.h>
 #include "time.h"
 #include <SerLCD.h> // 1.0.9
 #include <math.h>
 #include <strings.h>
-
+#include "secrets.h"
 // Replace with your network credentials
-const char* ssid = "ChangVan2017";
-const char* password = "ohcanada";
-
+const char *ssid = SECRET_SSID;
+const char *password = SECRET_PASS;
 
 char satnames[20][30] = {"R2", "NEOSSAT", "SCISAT", "RCM1", "RCM2", "RCM3", "ISS"}; // Names of satellites.
 char satURL[20][40] = {"/NORAD/elements/gp.php?CATNR=32382", "/NORAD/elements/gp.php?CATNR=39089",
-                      "/NORAD/elements/gp.php?CATNR=27858", "/NORAD/elements/gp.php?CATNR=44322",
-                      "/NORAD/elements/gp.php?CATNR=44324", "/NORAD/elements/gp.php?CATNR=44323",
-                      "/NORAD/elements/gp.php?CATNR=25544"
-                     }; // URL of Celestrak TLEs for satellites (In same order as names).
+                       "/NORAD/elements/gp.php?CATNR=27858", "/NORAD/elements/gp.php?CATNR=44322",
+                       "/NORAD/elements/gp.php?CATNR=44324", "/NORAD/elements/gp.php?CATNR=44323",
+                       "/NORAD/elements/gp.php?CATNR=25544"}; // URL of Celestrak TLEs for satellites (In same order as names).
 char TLE1[20][70];
 char TLE2[20][70];
 long upcomingPasses[20];
-int numSats = 7;    // Number of satellites to track.
+int numSats = 7; // Number of satellites to track.
 float minPassElevation = 10.0;
-float myLat = 45.5106; float myLong = -73.4384; float myAlt = 27;   // Your latitude, longitude and altitude.
+float myLat = 45.5106;
+float myLong = -73.4384;
+float myAlt = 27; // Your latitude, longitude and altitude.
 const int timeZone = -5;
-//pins:
-//EL motor: 26, 18, 19, 23 Limit: 32
-//AZ motor: 22, 21, 17 ,16 Limit: 27
-// Azimuth stepper pins //
-#define AZmotorPin1  22      // IN1 on the ULN2003 driver
-#define AZmotorPin2  21     // IN2 on the ULN2003 driver
-#define AZmotorPin3  17     // IN3 on the ULN2003 driver
-#define AZmotorPin4  16     // IN4 on the ULN2003 driver
-#define AZLimit  27
+// pins:
+// EL motor: 26, 18, 19, 23 Limit: 32
+// AZ motor: 22, 21, 17 ,16 Limit: 27
+//  Azimuth stepper pins //
+#define AZmotorPin1 22 // IN1 on the ULN2003 driver
+#define AZmotorPin2 21 // IN2 on the ULN2003 driver
+#define AZmotorPin3 17 // IN3 on the ULN2003 driver
+#define AZmotorPin4 16 // IN4 on the ULN2003 driver
+#define AZLimit 27
 // Elevation stepper pins //
-#define ELmotorPin1  26
-#define ELmotorPin2  18
-#define ELmotorPin3  19
-#define ELmotorPin4  23
+#define ELmotorPin1 26
+#define ELmotorPin2 18
+#define ELmotorPin3 19
+#define ELmotorPin4 23
 #define ELLimit 32
 float oneTurn = 4096; // stepper steps/turn
 
-int SAT; int nextSat; int AZstart; long passEnd; int satVIS;
-int  year; int mon; int day; int hr; int minute; double sec; int today;
-long nextpassEpoch; long nextpassEndEpoch; long passDuration;
+int SAT;
+int nextSat;
+int AZstart;
+long passEnd;
+int satVIS;
+int year;
+int mon;
+int day;
+int hr;
+int minute;
+double sec;
+int today;
+long nextpassEpoch;
+long nextpassEndEpoch;
+long passDuration;
 
 char satname[] = " ";
 int passStatus = 0;
@@ -56,30 +68,37 @@ int passStatus = 0;
 HardwareSerial LCD(2);
 Sgp4 sat;
 
-int satAZsteps; int satELsteps; int turns = 0;
+int satAZsteps;
+int satELsteps;
+int turns = 0;
 
-#define MotorInterfaceType 8  // Define the AccelStepper interface type; 4 wire motor in half step mode:
+#define MotorInterfaceType 8 // Define the AccelStepper interface type; 4 wire motor in half step mode:
 AccelStepper stepperAZ = AccelStepper(MotorInterfaceType, AZmotorPin1, AZmotorPin3, AZmotorPin2, AZmotorPin4);
 AccelStepper stepperEL = AccelStepper(MotorInterfaceType, ELmotorPin1, ELmotorPin3, ELmotorPin2, ELmotorPin4);
 
 ESP32Time rtc(0);
 unsigned long timeNow = 0;
-const char* ntpServer = "pool.ntp.org";
+const char *ntpServer = "pool.ntp.org";
 
-unsigned long getTime() {
+unsigned long getTime()
+{
   time_t now;
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    //Serial.println("Failed to obtain time");
+  if (!getLocalTime(&timeinfo))
+  {
+    // Serial.println("Failed to obtain time");
     return (0);
   }
   time(&now);
   return now;
 }
 
-int nextSatPass(long _nextpassEpoch[20]) {
-  for (int i = 0; i < numSats; ++i) {
-    if ( _nextpassEpoch[0] - timeNow >= _nextpassEpoch[i] - timeNow) {
+int nextSatPass(long _nextpassEpoch[20])
+{
+  for (int i = 0; i < numSats; ++i)
+  {
+    if (_nextpassEpoch[0] - timeNow >= _nextpassEpoch[i] - timeNow)
+    {
       _nextpassEpoch[0] = _nextpassEpoch[i];
       nextSat = i;
     }
@@ -87,13 +106,14 @@ int nextSatPass(long _nextpassEpoch[20]) {
   return nextSat;
 }
 
-void initMotors() {
+void initMotors()
+{
   // Setup stepper movements //
   stepperEL.setMaxSpeed(1000);
   stepperEL.setCurrentPosition(0); // Elevation stepper starts at -227 steps (20 degrees above horizon).
   stepperEL.setAcceleration(100);
   stepperAZ.setMaxSpeed(300);
-  stepperAZ.setCurrentPosition(0);  // Azimuth stepper starts at 0.
+  stepperAZ.setCurrentPosition(0); // Azimuth stepper starts at 0.
   stepperAZ.setAcceleration(100);
 
   unsigned long startTime = millis();
@@ -101,21 +121,26 @@ void initMotors() {
 
   // Zero //
   stepperAZ.runToNewPosition(-600);
-  while (true) {
+  while (true)
+  {
     currentTime = millis();
-    if (currentTime - startTime > 40 * 1000) {
+    if (currentTime - startTime > 40 * 1000)
+    {
       Serial.print("Zeroing timed out");
-      while (true);
+      while (true)
+        ;
     }
-    if (digitalRead(AZLimit) == LOW) {
+    if (digitalRead(AZLimit) == LOW)
+    {
       stepperAZ.setCurrentPosition(0);
       stepperAZ.runToNewPosition(-200);
       stepperAZ.setCurrentPosition(0);
       break;
     }
-    if (stepperAZ.distanceToGo() == 0) { // if motor moved to the maximum position
-      stepperAZ.setCurrentPosition(0);   // reset position to 0
-      stepperAZ.moveTo(2000);       // move the motor to maximum position again
+    if (stepperAZ.distanceToGo() == 0)
+    {                                  // if motor moved to the maximum position
+      stepperAZ.setCurrentPosition(0); // reset position to 0
+      stepperAZ.moveTo(2000);          // move the motor to maximum position again
     }
     stepperAZ.run();
   }
@@ -126,25 +151,29 @@ void initMotors() {
 
   stepperEL.runToNewPosition(-100);
   startTime = millis();
-  while (true) {
+  while (true)
+  {
     currentTime = millis();
-    if (currentTime - startTime > 40 * 1000) {
+    if (currentTime - startTime > 40 * 1000)
+    {
       Serial.println("Zeroing timed out");
-      while (true);
+      while (true)
+        ;
     }
-    if (digitalRead(ELLimit) == LOW) {
+    if (digitalRead(ELLimit) == LOW)
+    {
       stepperEL.setCurrentPosition(0);
       stepperEL.runToNewPosition(-80);
       stepperEL.setCurrentPosition(0);
       break;
     }
-    if (stepperEL.distanceToGo() == 0) { // if motor moved to the maximum position
-      stepperEL.setCurrentPosition(0);   // reset position to 0
-      stepperEL.moveTo(1000);       // move the motor to maximum position again
+    if (stepperEL.distanceToGo() == 0)
+    {                                  // if motor moved to the maximum position
+      stepperEL.setCurrentPosition(0); // reset position to 0
+      stepperEL.moveTo(1000);          // move the motor to maximum position again
     }
     stepperEL.run();
   }
-
 
   digitalWrite(ELmotorPin1, LOW);
   digitalWrite(ELmotorPin2, LOW);
@@ -153,17 +182,19 @@ void initMotors() {
   delay(1000);
 };
 
-void clearLCD() {
-  LCD.write(0xFE);  // send the special command
-  LCD.write(0x01);  // send the set cursor command
+void clearLCD()
+{
+  LCD.write(0xFE); // send the special command
+  LCD.write(0x01); // send the set cursor command
 }
 
 SerLCD lcd;
 
-void setup() {
+void setup()
+{
   pinMode(ELLimit, INPUT_PULLUP); // init pins for limit switches
   pinMode(AZLimit, INPUT_PULLUP);
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
   Serial.begin(115200);
   LCD.begin(9600, SERIAL_8N1, 20, 25); // Rx pin not used
   lcd.begin(LCD);
@@ -173,7 +204,8 @@ void setup() {
   clearLCD();
   lcd.print("Connecting to WiFi...");
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(2000);
     Serial.println("Connecting to WiFi...");
   }
@@ -182,7 +214,8 @@ void setup() {
   // Get Unix timestamp
   clearLCD();
   LCD.write("Fetching time...");
-  while (timeNow == 0) {
+  while (timeNow == 0)
+  {
     configTime(0, 0, ntpServer);
     timeNow = getTime();
   }
@@ -198,23 +231,27 @@ void setup() {
   clearLCD();
   LCD.write("Fetching TLEs");
   HTTPClient http;
-  sat.site(myLat, myLong, myAlt); //set location latitude[°], longitude[°] and altitude[m]
-  for (SAT = 0; SAT < numSats; SAT++) {
+  sat.site(myLat, myLong, myAlt); // set location latitude[°], longitude[°] and altitude[m]
+  for (SAT = 0; SAT < numSats; SAT++)
+  {
     Serial.println("Request #: " + String(SAT) + " For: " + String(satnames[SAT]));
     http.begin("https://celestrak.org/" + String(satURL[SAT]));
     int httpCode = http.GET();
     String TLE;
 
-    if (httpCode == HTTP_CODE_OK) {
+    if (httpCode == HTTP_CODE_OK)
+    {
       TLE = http.getString();
       TLE.substring(26, 96).toCharArray(TLE1[SAT], 70);
       TLE.substring(97, 167).toCharArray(TLE2[SAT], 70);
       Serial.println(TLE1[SAT]);
       Serial.println(TLE2[SAT]);
 
-      sat.init(satname, TLE1[SAT], TLE2[SAT]);   //initialize satellite parameters
+      sat.init(satname, TLE1[SAT], TLE2[SAT]);                  // initialize satellite parameters
       upcomingPasses[SAT] = Predict(timeNow, minPassElevation); // find next pass and store it array
-    } else {
+    }
+    else
+    {
       Serial.println("Failed to fetch TLE data for " + String(satnames[SAT]));
     }
     delay(100);
@@ -223,32 +260,35 @@ void setup() {
 
   nextSat = nextSatPass(upcomingPasses); // find earliest pass and track that sat
   Serial.println("Next satellite: " + String(nextSat));
-  sat.init(satname, TLE1[nextSat], TLE2[nextSat]); 
+  sat.init(satname, TLE1[nextSat], TLE2[nextSat]);
   Predict(timeNow, 0.0);
 }
 
-String printHHmmss (unsigned long _secondsIn) {
+String printHHmmss(unsigned long _secondsIn)
+{
   unsigned int _hour = floor(_secondsIn / 60 / 60);
-  unsigned int _minute = floor((_secondsIn / 60) % 60) ;
+  unsigned int _minute = floor((_secondsIn / 60) % 60);
   unsigned int _seconds = _secondsIn % 60;
-  char _DateAndTimeString[20]; //19 digits plus the null char
+  char _DateAndTimeString[20]; // 19 digits plus the null char
   sprintf(_DateAndTimeString, "%02d:%02d:%02d", _hour, _minute, _seconds);
   return _DateAndTimeString;
 }
 
-void loop() {
+void loop()
+{
   timeNow = rtc.getEpoch();
   sat.findsat(timeNow);
-  satAZsteps = -round(sat.satAz * oneTurn / 360); //Convert degrees to stepper steps
+  satAZsteps = -round(sat.satAz * oneTurn / 360); // Convert degrees to stepper steps
   satELsteps = -round(sat.satEl * oneTurn / 360);
 
-  invjday(sat.satJd , timeZone, true, year, mon, day, hr, minute, sec);
+  invjday(sat.satJd, timeZone, true, year, mon, day, hr, minute, sec);
   Serial.println("\nLocal time: " + String(day) + '/' + String(mon) + '/' + String(year) + ' ' + String(hr) + ':' + String(minute) + ':' + String(sec));
-  Serial.println("azimuth = " + String( sat.satAz) + " elevation = " + String(sat.satEl) + " distance = " + String(sat.satDist));
-  Serial.println("latitude = " + String( sat.satLat) + " longitude = " + String( sat.satLon) + " altitude = " + String( sat.satAlt));
+  Serial.println("azimuth = " + String(sat.satAz) + " elevation = " + String(sat.satEl) + " distance = " + String(sat.satDist));
+  Serial.println("latitude = " + String(sat.satLat) + " longitude = " + String(sat.satLon) + " altitude = " + String(sat.satAlt));
   Serial.println("AZsteps = " + String(satAZsteps));
 
-  if (nextpassEpoch - timeNow < 300 && nextpassEpoch + 5 - timeNow > 0) {
+  if (nextpassEpoch - timeNow < 300 && nextpassEpoch + 5 - timeNow > 0)
+  {
     Serial.println("Status: Pre-pass");
     Serial.println("Next satellite is #: " + String(satnames[nextSat]) + " in: " + String(nextpassEpoch - timeNow));
     clearLCD();
@@ -257,26 +297,32 @@ void loop() {
     lcd.setCursor(0, 1);
     lcd.print("AZ:" + String(int(sat.satAz)) + " EL:" + String(int(sat.satEl)));
     prepass();
-  } else if (sat.satVis != -2) {
+  }
+  else if (sat.satVis != -2)
+  {
     Serial.println("Status: In pass");
     clearLCD();
     lcd.print(satnames[nextSat]);
     unsigned int timeToLOS = nextpassEndEpoch - timeNow;
-    unsigned int _minute = floor((timeToLOS / 60) % 60) ;
+    unsigned int _minute = floor((timeToLOS / 60) % 60);
     unsigned int _seconds = timeToLOS % 60;
-    char DateAndTimeString[20]; //19 digits plus the null char
+    char DateAndTimeString[20]; // 19 digits plus the null char
     sprintf(DateAndTimeString, "%02d:%02d", _minute, _seconds);
     lcd.print(" LOS");
     lcd.print(DateAndTimeString);
     lcd.setCursor(0, 1);
     lcd.print("AZ:" + String(int(sat.satAz)) + " EL:" + String(int(sat.satEl)));
     inPass();
-  } else if (timeNow - passEnd < 60) {
+  }
+  else if (timeNow - passEnd < 60)
+  {
     Serial.println("Status: Post-pass");
     clearLCD();
-    lcd.print("Post-pass:" + String(passEnd +60 - timeNow));
+    lcd.print("Post-pass:" + String(passEnd + 60 - timeNow));
     postpass();
-  } else if (sat.satVis == -2) {
+  }
+  else if (sat.satVis == -2)
+  {
     Serial.println("Status: Standby");
     Serial.println("Next satellite is: " + String(satnames[nextSat]) + " in: " + String(nextpassEpoch - timeNow));
     clearLCD();
@@ -289,12 +335,13 @@ void loop() {
   delay(500);
 }
 
-void standby () {
+void standby()
+{
 
   // Azimuth //
   stepperAZ.runToNewPosition(0);
   // ELEVATION //
-  stepperEL.runToNewPosition(-280); //Standby at 20 degrees above horizon
+  stepperEL.runToNewPosition(-280); // Standby at 20 degrees above horizon
 
   digitalWrite(AZmotorPin1, LOW);
   digitalWrite(AZmotorPin2, LOW);
@@ -307,10 +354,12 @@ void standby () {
   digitalWrite(ELmotorPin4, LOW);
 }
 
-void prepass() {
+void prepass()
+{
   // Pass is less than 300 seconds (5 mins) away, move antenna to start location and wait.
-  if (AZstart < 360 && AZstart > 180) {
-    AZstart = AZstart - 360; //Goes to start counter-clockwise if closer.
+  if (AZstart < 360 && AZstart > 180)
+  {
+    AZstart = AZstart - 360; // Goes to start counter-clockwise if closer.
   }
   stepperAZ.runToNewPosition(-AZstart * oneTurn / 360);
   stepperEL.runToNewPosition(0);
@@ -324,20 +373,23 @@ void prepass() {
   digitalWrite(ELmotorPin2, LOW);
   digitalWrite(ELmotorPin3, LOW);
   digitalWrite(ELmotorPin4, LOW);
-
 }
 
-void inPass() {
+void inPass()
+{
 
   // Handle zero crossings
-  if (AZstart > 0) {
+  if (AZstart > 0)
+  {
     satAZsteps = satAZsteps - oneTurn;
   }
-  if (satAZsteps - stepperAZ.currentPosition() > 100) {
+  if (satAZsteps - stepperAZ.currentPosition() > 100)
+  {
     stepperAZ.setCurrentPosition(stepperAZ.currentPosition() + oneTurn);
     turns--;
   }
-  if (satAZsteps - stepperAZ.currentPosition() < -100) {
+  if (satAZsteps - stepperAZ.currentPosition() < -100)
+  {
     stepperAZ.setCurrentPosition(stepperAZ.currentPosition() - oneTurn);
     turns++;
   }
@@ -349,20 +401,26 @@ void inPass() {
   passStatus = 1;
 }
 
-void postpass() {
+void postpass()
+{
   Serial.println("Post pass time left: " + String(passEnd + 60 - timeNow));
-  if (timeNow - passEnd > 30) {
-    if (turns > 0) {
+  if (timeNow - passEnd > 30)
+  {
+    if (turns > 0)
+    {
       stepperAZ.setCurrentPosition(stepperAZ.currentPosition() + oneTurn);
       turns--;
     }
-    if (turns < 0) {
+    if (turns < 0)
+    {
       stepperAZ.setCurrentPosition(stepperAZ.currentPosition() - oneTurn);
       turns++;
     }
   }
-  if (passStatus == 1 && timeNow - passEnd > 50) {
-    for (SAT = 0; SAT < numSats; SAT++) {
+  if (passStatus == 1 && timeNow - passEnd > 50)
+  {
+    for (SAT = 0; SAT < numSats; SAT++)
+    {
       sat.init(satname, TLE1[SAT], TLE2[SAT]);
       upcomingPasses[SAT] = Predict(timeNow + 200, minPassElevation); // + 200 seconds so next pass is for sure not the one just ending.
       Serial.println("Next pass for Satellite #: " + String(SAT) + " in: " + String(upcomingPasses[SAT] - timeNow));
@@ -372,5 +430,4 @@ void postpass() {
     Predict(timeNow, 0.0);
     passStatus = 0;
   }
-
 }
